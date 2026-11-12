@@ -189,7 +189,7 @@
       if (endpoint) {
         status.className = 'form-status'; status.textContent = 'Sending your request…';
         fetch(endpoint, { method: 'POST', body: data, headers: { 'Accept': 'application/json' } })
-          .then(function (r) { if (!r.ok) throw new Error(); form.reset(); status.className = 'form-status ok'; status.textContent = 'Request sent. We will reply by email or phone with a fixed quote.'; })
+          .then(function (r) { if (!r.ok) throw new Error(); form.reset(); status.className = 'form-status ok'; status.textContent = 'Request sent. We will reply by email or phone with a quote.'; })
           .catch(function () { status.className = 'form-status err'; status.textContent = 'Your request could not be sent. Call 0141 255 1360 or email info@fireriskscotland.com instead.'; });
         return;
       }
