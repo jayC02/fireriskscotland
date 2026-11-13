@@ -177,28 +177,48 @@
     Object.keys(map).forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
   }
 
-  /* Quote form: posts to data-endpoint if set, otherwise opens a pre-filled email */
+  /* Quote form: sends to the Resend-backed endpoint and shows a confirmation on the page */
   var form = document.getElementById('quote-form');
   if (form) {
     var status = form.querySelector('.form-status');
+    var button = form.querySelector('button[type="submit"]');
+    var success = document.getElementById('quote-success');
+    var started = form.querySelector('input[name="form_started"]');
+    if (started) started.value = String(Date.now());
+    var setStatus = function (cls, msg) { status.className = 'form-status' + (cls ? ' ' + cls : ''); status.textContent = msg; };
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      if (form.querySelector('.hp input').value) return;
       if (!form.checkValidity()) { form.reportValidity(); return; }
-      var data = new FormData(form), endpoint = form.getAttribute('data-endpoint');
-      if (endpoint) {
-        status.className = 'form-status'; status.textContent = 'Sending your request…';
-        fetch(endpoint, { method: 'POST', body: data, headers: { 'Accept': 'application/json' } })
-          .then(function (r) { if (!r.ok) throw new Error(); form.reset(); status.className = 'form-status ok'; status.textContent = 'Request sent. We will reply by email or phone with a quote.'; })
-          .catch(function () { status.className = 'form-status err'; status.textContent = 'Your request could not be sent. Call 0141 255 1360 or email info@fireriskscotland.com instead.'; });
-        return;
-      }
-      var lines = [];
-      data.forEach(function (v, k) { if (k !== 'company_website' && k !== 'consent' && v) lines.push(k.replace(/_/g, ' ') + ': ' + v); });
-      var subject = 'Fire risk assessment quote request - ' + (data.get('premises_type') || 'premises');
-      window.location.href = 'mailto:info@fireriskscotland.com?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\n'));
-      status.className = 'form-status ok';
-      status.textContent = 'Your email app should now open with your details filled in. Press send to request your quote.';
+      var data = new FormData(form);
+      var body = new URLSearchParams();
+      data.forEach(function (v, k) { body.append(k, v); });
+      button.disabled = true; button.classList.add('is-loading'); button.textContent = 'Sending…';
+      setStatus('', '');
+      fetch(form.getAttribute('data-endpoint') || form.action, {
+        method: 'POST', body: body.toString(),
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }
+      })
+        .then(function (r) { return r.json().catch(function () { return { ok: false }; }).then(function (j) { j.status = r.status; return j; }); })
+        .then(function (j) {
+          if (!j.ok) throw new Error(j.error || '');
+          var name = (data.get('name') || '').toString().trim().split(/\s+/)[0];
+          success.querySelector('[data-fs="name"]').textContent = name ? ', ' + name : '';
+          success.querySelector('[data-fs="email"]').textContent = (data.get('email') || '').toString();
+          success.querySelector('[data-fs="confirm"]').hidden = j.confirmationSent === false;
+          form.hidden = true; success.hidden = false; success.classList.add('show');
+          success.focus({ preventScroll: true });
+          success.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+        })
+        .catch(function (err) {
+          setStatus('err', (err && err.message) || 'Your request could not be sent. Please call 0141 255 1360 or email info@scottishenergyservices.co.uk.');
+        })
+        .then(function () { button.disabled = false; button.classList.remove('is-loading'); button.textContent = 'Request my quote'; });
+    });
+    var again = success && success.querySelector('[data-fs="again"]');
+    if (again) again.addEventListener('click', function () {
+      form.reset(); if (started) started.value = String(Date.now());
+      success.hidden = true; success.classList.remove('show'); form.hidden = false; setStatus('', '');
+      form.querySelector('input[name="name"]').focus();
     });
   }
 })();

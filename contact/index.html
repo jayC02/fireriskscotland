@@ -49,7 +49,9 @@
   </div>
 </header>
 <main id="main"><header class="page-head"><div class="wrap ph-grid"><div><nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li><span aria-current="page">Get a quote</span></li></ol></nav><h1>Get a quote</h1><p class="lede">Tell us about the premises and we will reply with a quote and available dates. Prefer to talk? Call 0141 255 1360.</p></div><div class="ph-art" aria-hidden="true"><svg class="ph-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h3.5l2 5-2.6 1.7a11 11 0 0 0 5.9 5.9l1.7-2.6 5 2v3.5a2 2 0 0 1-2 2A17 17 0 0 1 3 5.5a2 2 0 0 1 2-2z"/></svg></div></div></header><div class="wrap layout"><article class="prose"><div class="two-col" style="align-items:start">
-<form class="form" id="quote-form" data-endpoint="" method="post" action="mailto:info@fireriskscotland.com" enctype="text/plain">
+<div class="quote-wrap">
+<form class="form" id="quote-form" data-endpoint="/api/quote/" method="post" action="/api/quote/">
+  <input type="hidden" name="form_started" value="">
   <div class="row">
     <div><label for="f-name">Your name</label><input id="f-name" name="name" autocomplete="name" required></div>
     <div><label for="f-phone">Phone <span>(optional)</span></label><input id="f-phone" name="phone" type="tel" autocomplete="tel"></div>
@@ -76,6 +78,15 @@
   <div><button class="btn btn-primary" type="submit">Request my quote</button></div>
   <p class="form-status" role="status" aria-live="polite"></p>
 </form>
+<div class="form-success" id="quote-success" tabindex="-1" hidden>
+  <div class="fs-icon" aria-hidden="true"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" /><path d="M15 27l7 7 15-16" /></svg></div>
+  <h2 data-notoc id="request-sent">Request sent</h2>
+  <p class="fs-lead">Thanks<span data-fs="name"></span>. Your request is with us and we will be in touch shortly with a quote and available dates.</p>
+  <p data-fs="confirm">We have also sent a confirmation to <strong data-fs="email"></strong>. If it is not in your inbox in a few minutes, check your junk folder.</p>
+  <p>Anything urgent? Call <a href="tel:+441412551360">0141 255 1360</a>.</p>
+  <div class="actions"><a class="btn btn-outline" href="/fire-risk-assessment/">What happens at the visit</a><button class="btn btn-primary" type="button" data-fs="again">Send another request</button></div>
+</div>
+</div>
 <div>
   <h2 id="talk-to-us">Talk to us</h2>
   <ul class="features" style="grid-template-columns:1fr">

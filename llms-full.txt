@@ -2578,6 +2578,15 @@ Tell us about the premises and we will reply with a quote and available dates. P
  I agree to Fire Risk Scotland using these details to reply to my request, as described in the privacy notice.
  Request my quote
 
+### Request sent
+
+Thanks. Your request is with us and we will be in touch shortly with a quote and available dates.
+ 
+We have also sent a confirmation to . If it is not in your inbox in a few minutes, check your junk folder.
+ 
+Anything urgent? Call 0141 255 1360.
+ What happens at the visitSend another request
+
 ### Talk to us
 
 - 
