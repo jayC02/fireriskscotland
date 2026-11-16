@@ -205,8 +205,10 @@
         var script = document.createElement('script');
         script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
         script.async = true;
-        script.onload = resolve;
-        script.onerror = function () { script.remove(); reject(new Error('The security check could not load. Please retry, or call 0141 255 1360.')); };
+        var failed = function () { clearTimeout(timer); script.remove(); reject(new Error('The security check could not load. Please retry, or call 0141 255 1360.')); };
+        var timer = setTimeout(failed, 10000);
+        script.onload = function () { clearTimeout(timer); resolve(); };
+        script.onerror = failed;
         document.head.appendChild(script);
       });
     };
@@ -215,23 +217,26 @@
       captchaLoading = true;
       captchaRetry.hidden = true;
       captchaStatus.textContent = 'Loading security check…';
-      fetch(form.getAttribute('data-endpoint'), { headers: { 'Accept': 'application/json' }, cache: 'no-store' })
+      var controller = new AbortController();
+      var configTimer = setTimeout(function () { controller.abort(); }, 10000);
+      fetch(form.getAttribute('data-endpoint'), { headers: { 'Accept': 'application/json' }, cache: 'no-store', signal: controller.signal })
         .then(function (r) { return r.json().then(function (config) {
           if (!r.ok || !config.siteKey) throw new Error(config.error || 'The security check is temporarily unavailable. Please call 0141 255 1360.');
           return config;
         }); })
         .then(function (config) { return loadTurnstile().then(function () {
+          captchaStatus.textContent = '';
           if (captchaId !== null) { resetCaptcha(); return; }
           captchaId = window.turnstile.render('#quote-captcha', {
-            sitekey: config.siteKey, action: 'quote', theme: 'light', size: 'flexible', 'response-field': false,
+            sitekey: config.siteKey, action: 'quote', theme: 'light', size: 'compact', 'response-field': false,
             callback: function (token) { captchaToken.value = token; captchaStatus.textContent = ''; captchaRetry.hidden = true; },
             'expired-callback': function () { captchaToken.value = ''; captchaStatus.textContent = 'Security check expired. Please complete it again.'; },
             'error-callback': function () { captchaError('The security check could not complete. Please retry, or call 0141 255 1360.'); return true; },
             'timeout-callback': function () { captchaError('The security check timed out. Please retry.'); }
           });
         }); })
-        .catch(function (err) { captchaError(err.message || 'The security check is temporarily unavailable. Please call 0141 255 1360.'); })
-        .then(function () { captchaLoading = false; });
+        .catch(function (err) { captchaError(err.name === 'AbortError' ? 'The security check took too long to load. Please retry, or call 0141 255 1360.' : err.message || 'The security check is temporarily unavailable. Please call 0141 255 1360.'); })
+        .then(function () { clearTimeout(configTimer); captchaLoading = false; });
     };
     captchaRetry.addEventListener('click', initCaptcha);
     initCaptcha();
