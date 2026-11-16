@@ -65,3 +65,7 @@ Don't copy this site's text onto the SES site. Two sites with the same text comp
 ## Pages
 
 Home, fire risk assessments, HMOs, short-term lets, workplaces, hotels and care homes, blocks of flats, fire safety law in Scotland, choosing an assessor, cost, FAQ (27 questions), areas we cover, Glasgow, Edinburgh, about, contact, privacy, 404.
+
+## Brand assets
+
+The site uses the artwork supplied in `Fire_Risk_Scotland_Logo_Pack.zip` on 16 November 2026. The full horizontal logo is `assets/img/frs-logo.png`; the header and footer preserve its original proportions and colours. The footer gives the supplied navy artwork a white background. Browser, Apple touch and manifest icons use the pack's website exports, and the social preview uses its 800px profile image. These are raster exports, not vector originals. All 19 HTML pages share the same logo and icon references; versioned image and stylesheet URLs refresh the previous cached branding.
