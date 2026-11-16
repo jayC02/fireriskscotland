@@ -7,8 +7,13 @@
 //   QUOTE_TO_EMAIL     optional, default info@scottishenergyservices.co.uk
 //   QUOTE_FROM_EMAIL   optional, default "Fire Risk Scotland <quotes@fireriskscotland.com>"
 //                      (must be an address on a domain verified in Resend)
+//   TURNSTILE_SITE_KEY   required, public widget key returned to the form
+//   TURNSTILE_SECRET_KEY required, server-only matching widget secret
 
 const RESEND_URL = 'https://api.resend.com/emails';
+const VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+const ALLOWED_HOSTS = new Set(['fireriskscotland.com', 'www.fireriskscotland.com']);
+const MAX_BODY_BYTES = 16384;
 const TO_EMAIL = process.env.QUOTE_TO_EMAIL || 'info@scottishenergyservices.co.uk';
 const FROM_EMAIL = process.env.QUOTE_FROM_EMAIL || 'Fire Risk Scotland <quotes@fireriskscotland.com>';
 const PHONE = '0141 255 1360';
@@ -38,8 +43,29 @@ function parseBody(body) {
   return Object.fromEntries(new URLSearchParams(text));
 }
 
+function header(req, name) {
+  const value = req.headers[name];
+  return typeof value === 'string' ? value : '';
+}
+
+async function verifyCaptcha(token) {
+  const response = await fetch(VERIFY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET_KEY, response: token }),
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!response.ok) throw new Error('Security check unavailable');
+  const result = await response.json();
+  if (Array.isArray(result['error-codes']) && result['error-codes'].some(code =>
+    ['missing-input-secret', 'invalid-input-secret', 'internal-error'].includes(code))) {
+    throw new Error('Security check unavailable');
+  }
+  return result.success === true && ALLOWED_HOSTS.has(result.hostname) && result.action === 'quote';
+}
+
 function respond(req, res, status, payload) {
-  const wantsJson = (req.headers.accept || '').includes('application/json');
+  const wantsJson = header(req, 'accept').includes('application/json');
   res.setHeader('Cache-Control', 'no-store');
   if (wantsJson) return res.status(status).json(payload);
   // Form posted without JavaScript: send the visitor to a page instead of raw JSON.
@@ -80,12 +106,51 @@ ${inner}
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ ok: false, error: 'Use POST to send a quote request.' });
   }
 
-  const b = parseBody(req.body);
+  // Vercel supplies this country header from the connection's IP address.
+  // Never accept a country from the form, client geolocation, or another proxy header.
+  // Missing location also fails closed, including direct requests to deployment URLs.
+  if (header(req, 'x-vercel-ip-country') !== 'GB') {
+    return respond(req, res, 403, { ok: false, error: `Online quote requests are available from UK connections. Please call ${PHONE} or email info@fireriskscotland.com if you are abroad or using a VPN.` });
+  }
+
+  if (!process.env.TURNSTILE_SITE_KEY || !process.env.TURNSTILE_SECRET_KEY) {
+    return respond(req, res, 503, { ok: false, error: `Our quote form is temporarily unavailable. Please call ${PHONE} or email info@fireriskscotland.com.` });
+  }
+  // The static page loads only the public key at runtime. Secrets never reach the browser.
+  if (req.method === 'GET') return res.status(200).json({ siteKey: process.env.TURNSTILE_SITE_KEY });
+
+  const origin = header(req, 'origin');
+  if (origin) {
+    let allowed = false;
+    try { allowed = new URL(origin).origin === SITE; } catch (err) { /* invalid origin */ }
+    if (!allowed) return respond(req, res, 403, { ok: false, error: 'Please send your request from fireriskscotland.com.' });
+  }
+  if (header(req, 'sec-fetch-site') === 'cross-site') {
+    return respond(req, res, 403, { ok: false, error: 'Please send your request from fireriskscotland.com.' });
+  }
+  const type = header(req, 'content-type').split(';')[0].trim().toLowerCase();
+  if (!['application/json', 'application/x-www-form-urlencoded'].includes(type)) {
+    return respond(req, res, 415, { ok: false, error: 'Unsupported request format.' });
+  }
+
+  let b;
+  try {
+    const raw = typeof req.body === 'string' || Buffer.isBuffer(req.body) ? req.body : JSON.stringify(req.body || {});
+    if (Buffer.byteLength(raw) > MAX_BODY_BYTES || Number(header(req, 'content-length')) > MAX_BODY_BYTES) {
+      return respond(req, res, 413, { ok: false, error: 'Please shorten your message and try again.' });
+    }
+    b = type === 'application/json' && (typeof req.body === 'string' || Buffer.isBuffer(req.body))
+      ? JSON.parse(req.body.toString()) : parseBody(req.body);
+    if (!b || typeof b !== 'object' || Array.isArray(b)) throw new Error('Invalid body');
+  } catch (err) {
+    return respond(req, res, 400, { ok: false, error: 'Invalid request. Please reload the form and try again.' });
+  }
 
   // Spam traps: a hidden field real visitors never fill, and a minimum time on the page.
   if (clean(b.company_website, 200)) return respond(req, res, 200, { ok: true });
@@ -102,6 +167,18 @@ module.exports = async function handler(req, res) {
   if (!d.premises_type || !PREMISES.includes(d.premises_type)) return respond(req, res, 400, { ok: false, error: 'Please choose the type of premises.' });
   if (!d.postcode) return respond(req, res, 400, { ok: false, error: 'Please enter the postcode or town of the premises.' });
   if (!b.consent) return respond(req, res, 400, { ok: false, error: 'Please tick the box to agree to us using your details to reply.' });
+
+  const token = b['cf-turnstile-response'];
+  if (typeof token !== 'string' || !token.trim() || token.length > 2048) {
+    return respond(req, res, 400, { ok: false, error: 'Please complete the security check and try again.' });
+  }
+  try {
+    if (!await verifyCaptcha(token)) {
+      return respond(req, res, 400, { ok: false, error: 'The security check expired or failed. Please complete it again.' });
+    }
+  } catch (err) {
+    return respond(req, res, 503, { ok: false, error: `The security check is temporarily unavailable. Please try again or call ${PHONE}.` });
+  }
 
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
