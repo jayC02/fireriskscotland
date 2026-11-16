@@ -184,14 +184,75 @@
     var button = form.querySelector('button[type="submit"]');
     var success = document.getElementById('quote-success');
     var started = form.querySelector('input[name="form_started"]');
+    var captchaToken = form.querySelector('input[name="cf-turnstile-response"]');
+    var captchaStatus = form.querySelector('[data-captcha-status]');
+    var captchaRetry = form.querySelector('[data-captcha-retry]');
+    var captchaId = null, captchaLoading = false, submitting = false;
     if (started) started.value = String(Date.now());
     var setStatus = function (cls, msg) { status.className = 'form-status' + (cls ? ' ' + cls : ''); status.textContent = msg; };
+    var captchaError = function (msg) {
+      captchaToken.value = '';
+      captchaStatus.textContent = msg;
+      captchaRetry.hidden = false;
+    };
+    var resetCaptcha = function () {
+      captchaToken.value = '';
+      if (captchaId !== null && window.turnstile) window.turnstile.reset(captchaId);
+    };
+    var loadTurnstile = function () {
+      if (window.turnstile) return Promise.resolve();
+      return new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        script.async = true;
+        var failed = function () { clearTimeout(timer); script.remove(); reject(new Error('The security check could not load. Please retry, or call 0141 255 1360.')); };
+        var timer = setTimeout(failed, 10000);
+        script.onload = function () { clearTimeout(timer); resolve(); };
+        script.onerror = failed;
+        document.head.appendChild(script);
+      });
+    };
+    var initCaptcha = function () {
+      if (captchaLoading) return;
+      captchaLoading = true;
+      captchaRetry.hidden = true;
+      captchaStatus.textContent = 'Loading security check…';
+      var controller = new AbortController();
+      var configTimer = setTimeout(function () { controller.abort(); }, 10000);
+      fetch(form.getAttribute('data-endpoint'), { headers: { 'Accept': 'application/json' }, cache: 'no-store', signal: controller.signal })
+        .then(function (r) { return r.json().then(function (config) {
+          if (!r.ok || !config.siteKey) throw new Error(config.error || 'The security check is temporarily unavailable. Please call 0141 255 1360.');
+          return config;
+        }); })
+        .then(function (config) { return loadTurnstile().then(function () {
+          captchaStatus.textContent = '';
+          if (captchaId !== null) { resetCaptcha(); return; }
+          captchaId = window.turnstile.render('#quote-captcha', {
+            sitekey: config.siteKey, action: 'quote', theme: 'light', size: 'compact', 'response-field': false,
+            callback: function (token) { captchaToken.value = token; captchaStatus.textContent = ''; captchaRetry.hidden = true; },
+            'expired-callback': function () { captchaToken.value = ''; captchaStatus.textContent = 'Security check expired. Please complete it again.'; },
+            'error-callback': function () { captchaError('The security check could not complete. Please retry, or call 0141 255 1360.'); return true; },
+            'timeout-callback': function () { captchaError('The security check timed out. Please retry.'); }
+          });
+        }); })
+        .catch(function (err) { captchaError(err.name === 'AbortError' ? 'The security check took too long to load. Please retry, or call 0141 255 1360.' : err.message || 'The security check is temporarily unavailable. Please call 0141 255 1360.'); })
+        .then(function () { clearTimeout(configTimer); captchaLoading = false; });
+    };
+    captchaRetry.addEventListener('click', initCaptcha);
+    initCaptcha();
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      if (submitting) return;
       if (!form.checkValidity()) { form.reportValidity(); return; }
+      if (!captchaToken.value) {
+        setStatus('err', 'Please complete the security check before sending your request.');
+        document.getElementById('quote-security').focus();
+        return;
+      }
       var data = new FormData(form);
       var body = new URLSearchParams();
       data.forEach(function (v, k) { body.append(k, v); });
+      submitting = true;
       button.disabled = true; button.classList.add('is-loading'); button.textContent = 'Sending…';
       setStatus('', '');
       fetch(form.getAttribute('data-endpoint') || form.action, {
@@ -210,14 +271,16 @@
           success.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
         })
         .catch(function (err) {
+          resetCaptcha();
           setStatus('err', (err && err.message) || 'Your request could not be sent. Please call 0141 255 1360 or email info@scottishenergyservices.co.uk.');
         })
-        .then(function () { button.disabled = false; button.classList.remove('is-loading'); button.textContent = 'Request my quote'; });
+        .then(function () { submitting = false; button.disabled = false; button.classList.remove('is-loading'); button.textContent = 'Request my quote'; });
     });
     var again = success && success.querySelector('[data-fs="again"]');
     if (again) again.addEventListener('click', function () {
       form.reset(); if (started) started.value = String(Date.now());
       success.hidden = true; success.classList.remove('show'); form.hidden = false; setStatus('', '');
+      resetCaptcha();
       form.querySelector('input[name="name"]').focus();
     });
   }

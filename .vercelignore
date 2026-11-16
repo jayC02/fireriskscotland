@@ -1,2 +1,8 @@
 README.md
 .env
+.env.*
+.env example
+tests/
+output/
+scripts/
+.playwright-cli/
